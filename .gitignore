@@ -1,0 +1,20 @@
+# /references/ — raw source material (PDFs, Chinese docs, competitor skills)
+/references/
+
+# Root-level source files
+/claude-skills-guide.md
+/skills-lock.json
+*.xlsx
+*.pptx
+
+# OS
+.DS_Store
+
+# Agent symlinks (created by npx skills install)
+.agent/
+.agents/
+.kiro/
+.claude/
+.cursor/
+.windsurf/
+.gemini/
