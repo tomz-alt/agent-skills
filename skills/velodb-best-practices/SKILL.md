@@ -5,10 +5,11 @@ description: >
   MUST USE when writing, reviewing, or optimizing Doris CREATE TABLE statements,
   partition/bucket strategies, data models, or cluster configurations.
   Also use when user provides a VeloDB connection string or asks to get started.
+  Also use when user mentions velo CLI, velocli, or wants to connect to VeloDB/Doris.
 license: Apache-2.0
 metadata:
   author: VeloDB
-  version: "2.0.0"
+  version: "3.1.0"
 ---
 
 # VeloDB Best Practices
@@ -71,9 +72,32 @@ Run through this checklist in order. Each step references the relevant rule:
 
 ---
 
-## 3 ▸ Connection Setup
+## 3 ▸ Connection & VeloCLI
 
-Quick-start guides are in:
+### Detect VeloCLI
+
+Before running any queries, check for the `velo` CLI tool:
+
+1. Check `VELO_CLI_PATH` env var — if set, use that binary path
+2. Otherwise run `which velo` — if found, use it from PATH
+3. If neither: fall back to `mysql` client (see `references/start-*.md`)
+
+### When VeloCLI is available, prefer it for all operations:
+
+| Task | VeloCLI Command |
+|------|-----------------|
+| Run SQL | `velo sql "SELECT ..."` |
+| DDL inspection | `velo sql "SHOW CREATE TABLE db.t"` |
+| Table/tablet health | `velo tablet db.t` (overview) or `velo tablet db.t --detail` |
+| Profile a slow query | `velo sql "SELECT ..." --profile` → captures query_id |
+| Get query profile | `velo profile get <qid>` or `--full` for complete diagnosis |
+| Compare fast vs slow | `velo profile diff <slow_qid> <fast_qid>` |
+| Performance trend | `velo profile history <sql_pattern> --days 7` |
+| Test connection | `velo auth status` |
+| Switch environment | `velo use <name>` |
+
+### Quick-start guides
+
 - `references/start-cloud.md` — VeloDB Cloud
 - `references/start-self-hosted.md` — Self-hosted / BYOC / on-prem
 
