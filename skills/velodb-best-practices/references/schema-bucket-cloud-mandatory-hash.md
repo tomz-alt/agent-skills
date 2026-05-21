@@ -15,7 +15,7 @@ In VeloDB Cloud (storage-compute separation), RANDOM bucketing is not supported 
 -- GOOD: Cloud MoW with HASH
 CREATE TABLE users (...)
 UNIQUE KEY(user_id)
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(user_id) BUCKETS 5  -- cloud MoW: calculate: data_per_partition_GB × compression / 2
 PROPERTIES (
     "enable_unique_key_merge_on_write" = "true",
     "replication_num" = "1"  -- cloud mode

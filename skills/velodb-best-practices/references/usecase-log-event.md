@@ -16,14 +16,13 @@ CREATE TABLE app_events (
 ) ENGINE=OLAP
 DUPLICATE KEY(event_time, app_id, event_type)
 PARTITION BY RANGE(event_time) ()
-DISTRIBUTED BY HASH(app_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(app_id) BUCKETS 10  -- high-volume logs: calculate: data_per_partition_GB × compression / 2
 PROPERTIES (
     "dynamic_partition.enable" = "true",
     "dynamic_partition.time_unit" = "DAY",
     "dynamic_partition.start" = "-7",
     "dynamic_partition.end" = "3",
     "dynamic_partition.prefix" = "p",
-    "dynamic_partition.buckets" = "AUTO",
     "compression" = "zstd"
 );
 ```

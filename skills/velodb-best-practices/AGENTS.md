@@ -19,7 +19,7 @@ CREATE TABLE users_sync (
     status TINYINT
 ) ENGINE=OLAP
 UNIQUE KEY(user_id)
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(user_id) BUCKETS 5  -- CDC table: ~10 GB compressed
 PROPERTIES (
     "enable_unique_key_merge_on_write" = "true",
     "function_column.sequence_col" = "update_time",
@@ -52,7 +52,7 @@ CREATE TABLE daily_sales_metrics (
     unique_buyers BITMAP BITMAP_UNION
 ) ENGINE=OLAP AGGREGATE KEY(dt, store_id)
 PARTITION BY RANGE(dt) ()
-DISTRIBUTED BY HASH(store_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(store_id) BUCKETS 5  -- pre-aggregated metrics: ~10 GB compressed
 PROPERTIES ("dynamic_partition.enable"="true","dynamic_partition.time_unit"="MONTH",
     "dynamic_partition.start"="-12","dynamic_partition.end"="1","dynamic_partition.prefix"="p");
 ```
@@ -107,14 +107,13 @@ CREATE TABLE app_events (
 ) ENGINE=OLAP
 DUPLICATE KEY(event_time, app_id, event_type)
 PARTITION BY RANGE(event_time) ()
-DISTRIBUTED BY HASH(app_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(app_id) BUCKETS 10  -- high-volume logs: ~50 GB/day compressed
 PROPERTIES (
     "dynamic_partition.enable" = "true",
     "dynamic_partition.time_unit" = "DAY",
     "dynamic_partition.start" = "-7",
     "dynamic_partition.end" = "3",
     "dynamic_partition.prefix" = "p",
-    "dynamic_partition.buckets" = "AUTO",
     "compression" = "zstd"
 );
 ```
@@ -142,14 +141,14 @@ CREATE TABLE otel_logs (
     log_time DATETIME NOT NULL, service_name VARCHAR(100) NOT NULL,
     severity VARCHAR(10) NOT NULL, trace_id VARCHAR(32), span_id VARCHAR(16),
     body TEXT, resource_attributes STRING,
-    INDEX idx_body(body) USING INVERTED PROPERTIES("parser" = "unicode"),
-    INDEX idx_trace(trace_id) USING BLOOM FILTER
+    INDEX idx_body(body) USING INVERTED PROPERTIES("parser" = "unicode")
 ) ENGINE=OLAP DUPLICATE KEY(log_time, service_name, severity)
 PARTITION BY RANGE(log_time) ()
-DISTRIBUTED BY HASH(service_name) BUCKETS AUTO
+DISTRIBUTED BY HASH(service_name) BUCKETS 10  -- high-volume logs: ~100 GB/day x 0.05 ZSTD / 2 GB
 PROPERTIES ("dynamic_partition.enable"="true","dynamic_partition.time_unit"="DAY",
     "dynamic_partition.start"="-7","dynamic_partition.end"="3",
-    "dynamic_partition.prefix"="p","compression"="zstd");
+    "dynamic_partition.prefix"="p","compression"="zstd",
+    "bloom_filter_columns"="trace_id");
 ```
 ### Table 2: Traces (DUPLICATE)
 ```sql
@@ -157,14 +156,14 @@ CREATE TABLE otel_traces (
     start_time DATETIME NOT NULL, service_name VARCHAR(100) NOT NULL,
     trace_id VARCHAR(32) NOT NULL, span_id VARCHAR(16) NOT NULL,
     parent_span_id VARCHAR(16), operation_name VARCHAR(200),
-    duration_ms BIGINT, status_code TINYINT,
-    INDEX idx_trace(trace_id) USING BLOOM FILTER
+    duration_ms BIGINT, status_code TINYINT
 ) ENGINE=OLAP DUPLICATE KEY(start_time, service_name, trace_id)
 PARTITION BY RANGE(start_time) ()
-DISTRIBUTED BY HASH(service_name) BUCKETS AUTO
+DISTRIBUTED BY HASH(service_name) BUCKETS 3  -- traces: lower volume than logs, small per partition
 PROPERTIES ("dynamic_partition.enable"="true","dynamic_partition.time_unit"="DAY",
     "dynamic_partition.start"="-7","dynamic_partition.end"="3",
-    "dynamic_partition.prefix"="p","compression"="zstd");
+    "dynamic_partition.prefix"="p","compression"="zstd",
+    "bloom_filter_columns"="trace_id");
 ```
 ### Table 3: Metrics (AGGREGATE)
 ```sql
@@ -174,7 +173,7 @@ CREATE TABLE otel_metrics (
     value DOUBLE SUM DEFAULT "0", count BIGINT SUM DEFAULT "0"
 ) ENGINE=OLAP AGGREGATE KEY(metric_time, service_name, metric_name)
 PARTITION BY RANGE(metric_time) ()
-DISTRIBUTED BY HASH(service_name) BUCKETS AUTO
+DISTRIBUTED BY HASH(service_name) BUCKETS 3  -- pre-aggregated metrics: small per partition
 PROPERTIES ("dynamic_partition.enable"="true","dynamic_partition.time_unit"="DAY",
     "dynamic_partition.start"="-30","dynamic_partition.end"="3","dynamic_partition.prefix"="p");
 ```
@@ -193,14 +192,14 @@ For serving real-time analytics through APIs with low-latency, high-concurrency 
 CREATE TABLE user_profiles (
     user_id BIGINT NOT NULL, tenant_id INT NOT NULL,
     name VARCHAR(100), email VARCHAR(200), last_login DATETIME,
-    total_orders INT, lifetime_value DECIMAL(12,2),
-    INDEX idx_tenant (tenant_id) USING BLOOM FILTER
+    total_orders INT, lifetime_value DECIMAL(12,2)
 ) ENGINE=OLAP UNIQUE KEY(user_id)
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(user_id) BUCKETS 5  -- user profiles: ~10 GB compressed
 PROPERTIES (
     "enable_unique_key_merge_on_write" = "true",
     "store_row_column" = "true",
-    "light_schema_change" = "true"
+    "light_schema_change" = "true",
+    "bloom_filter_columns" = "tenant_id"
 );
 ```
 ### Why This Design
@@ -232,7 +231,7 @@ PARTITION BY RANGE(order_date) ()
 DISTRIBUTED BY HASH(store_id) BUCKETS 16
 PROPERTIES ("dynamic_partition.enable"="true","dynamic_partition.time_unit"="MONTH",
     "dynamic_partition.start"="-24","dynamic_partition.end"="1",
-    "dynamic_partition.prefix"="p","dynamic_partition.buckets"="16",
+    "dynamic_partition.prefix"="p",
     "colocate_with"="group_orders");
 ```
 ### Dimension Table (colocated)
@@ -285,7 +284,7 @@ CREATE TABLE orders (
     status VARCHAR(20),
     amount DECIMAL(12,2)
 ) UNIQUE KEY(order_id)
-DISTRIBUTED BY HASH(order_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(order_id) BUCKETS 5  -- ~10 GB compressed
 PROPERTIES ("enable_unique_key_merge_on_write" = "true");
 ```
 
@@ -326,7 +325,7 @@ CREATE TABLE users (
     name VARCHAR(100),
     email VARCHAR(200)
 ) UNIQUE KEY(user_id)
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(user_id) BUCKETS 5  -- ~10 GB compressed
 PROPERTIES ("enable_unique_key_merge_on_write" = "true");
 ```
 
@@ -372,7 +371,7 @@ CREATE TABLE users (
     name VARCHAR(100),
     email VARCHAR(200)
 ) UNIQUE KEY(user_id)
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(user_id) BUCKETS 5  -- CDC table: ~10 GB compressed
 PROPERTIES (
     "enable_unique_key_merge_on_write" = "true",
     "function_column.sequence_col" = "update_time"
@@ -403,7 +402,7 @@ CREATE TABLE sparse_events (
 ) DUPLICATE KEY(event_time, user_id)
 AUTO PARTITION BY RANGE(date_trunc(event_time, 'month'))
 ()
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO;
+DISTRIBUTED BY HASH(user_id) BUCKETS 5;  -- sporadic events: ~10 GB compressed
 ```
 
 **When to use AUTO vs DYNAMIC:**
@@ -430,8 +429,7 @@ PROPERTIES (
     "dynamic_partition.time_unit" = "DAY",
     "dynamic_partition.start" = "-7",
     "dynamic_partition.end" = "3",
-    "dynamic_partition.prefix" = "p",
-    "dynamic_partition.buckets" = "AUTO"
+    "dynamic_partition.prefix" = "p"
 );
 ```
 
@@ -463,7 +461,7 @@ Combined with dynamic partitioning, this enables:
 CREATE TABLE events (
     event_time DATETIME, user_id BIGINT, data STRING
 ) DUPLICATE KEY(event_time)
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO;
+DISTRIBUTED BY HASH(user_id) BUCKETS 8;
 -- Every query scans ALL data, no TTL possible
 ```
 
@@ -474,7 +472,7 @@ CREATE TABLE events (
     event_time DATETIME NOT NULL, user_id BIGINT, data STRING
 ) DUPLICATE KEY(event_time, user_id)
 PARTITION BY RANGE(event_time) ()
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(user_id) BUCKETS 10  -- time-series events: ~50 GB/day compressed
 PROPERTIES (
     "dynamic_partition.enable" = "true",
     "dynamic_partition.time_unit" = "DAY",
@@ -525,7 +523,7 @@ In VeloDB Cloud (storage-compute separation), RANDOM bucketing is not supported 
 -- GOOD: Cloud MoW with HASH
 CREATE TABLE users (...)
 UNIQUE KEY(user_id)
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(user_id) BUCKETS 5  -- cloud MoW: ~10 GB compressed
 PROPERTIES (
     "enable_unique_key_merge_on_write" = "true",
     "replication_num" = "1"  -- cloud mode
@@ -592,7 +590,7 @@ Reference: [Data Distribution](https://doris.apache.org/docs/table-design/data-p
 ```sql
 -- BAD: RANDOM on a UNIQUE table (not supported)
 CREATE TABLE users (...) UNIQUE KEY(user_id)
-DISTRIBUTED BY RANDOM BUCKETS AUTO;
+DISTRIBUTED BY RANDOM BUCKETS 8;
 ```
 
 **Correct:**
@@ -600,11 +598,11 @@ DISTRIBUTED BY RANDOM BUCKETS AUTO;
 ```sql
 -- GOOD: HASH on primary key for UNIQUE
 CREATE TABLE users (...) UNIQUE KEY(user_id)
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO;
+DISTRIBUTED BY HASH(user_id) BUCKETS 8;  -- ~15 GB compressed
 
 -- GOOD: RANDOM for DUP when no filter column is obvious
 CREATE TABLE raw_logs (...) DUPLICATE KEY(log_time)
-DISTRIBUTED BY RANDOM BUCKETS AUTO;
+DISTRIBUTED BY RANDOM BUCKETS 3;  -- small table or full-scan workload
 ```
 
 Reference: [Data Distribution](https://doris.apache.org/docs/table-design/data-partitioning/data-distribution)
@@ -634,15 +632,21 @@ Reference: [Data Distribution](https://doris.apache.org/docs/table-design/data-p
 Rules:
 - **Target:** 1-10 GB per tablet (compressed)
 - **Max buckets per partition:** ≤ 64
-- **Preferred:** Use `BUCKETS AUTO` to let Doris calculate
+- **Preferred:** Calculate explicit bucket count: `daily_data_GB / target_tablet_GB`
 
 ```sql
--- GOOD: Let Doris decide
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO
+-- GOOD: Explicit count from sizing math
+-- 14 GB/day partition, target ~2 GB/tablet → 8 buckets
+DISTRIBUTED BY HASH(user_id) BUCKETS 8
 
--- Manual: 100 GB partition / target 5 GB per tablet = 20 buckets
-DISTRIBUTED BY HASH(user_id) BUCKETS 20
+-- 3 GB/day partition, target ~1 GB/tablet → 4 buckets
+DISTRIBUTED BY HASH(order_id) BUCKETS 4
+
+-- 136 GB/day partition, target ~4 GB/tablet → 32 buckets
+DISTRIBUTED BY HASH(conn_id) BUCKETS 32
 ```
+
+Always write a numeric bucket count. Automatic bucket sizing obscures intent and may pick suboptimal counts; if volume is unknown, use a conservative explicit fallback such as 3, 8, 16, or 32 buckets based on expected table size.
 
 **Warning signs:**
 - Tablets < 100 MB → Too many buckets, merge or reduce
@@ -690,7 +694,7 @@ CREATE TABLE users (
     region VARCHAR(20),
     name VARCHAR(100)
 ) UNIQUE KEY(user_id)
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(user_id) BUCKETS 5  -- ~10 GB compressed
 PROPERTIES (
     "enable_unique_key_merge_on_write" = "true",
     "cluster_key" = "region, user_id"
@@ -783,7 +787,7 @@ CREATE TABLE daily_uv (
     page VARCHAR(200) NOT NULL,
     uv BITMAP BITMAP_UNION
 ) AGGREGATE KEY(dt, page)
-DISTRIBUTED BY HASH(page) BUCKETS AUTO;
+DISTRIBUTED BY HASH(page) BUCKETS 5;  -- ~10 GB compressed
 -- Insert with to_bitmap():
 INSERT INTO daily_uv SELECT '2025-01-01', '/home', to_bitmap(user_id) FROM events;
 -- Query exact UV:
@@ -838,7 +842,7 @@ CREATE TABLE events (
     event_id BIGINT NOT NULL,
     data VARIANT
 ) DUPLICATE KEY(event_time, event_id)
-DISTRIBUTED BY HASH(event_id) BUCKETS AUTO;
+DISTRIBUTED BY HASH(event_id) BUCKETS 5;  -- ~10 GB compressed
 -- Query nested fields directly:
 SELECT data['user']['name'], data['action'] FROM events;
 ```
@@ -924,14 +928,13 @@ Use for columns with ≥ 5000 distinct values, filtered with `=` or `IN`.
 ```sql
 -- Add BloomFilter index
 PROPERTIES ("bloom_filter_columns" = "trace_id, session_id");
--- Or per-column:
-INDEX idx_trace(trace_id) USING BLOOM FILTER
 ```
 **Constraints:**
 - NOT supported on TINYINT, FLOAT, or DOUBLE columns
 - Only accelerates `=` and `IN` filters (not LIKE, not range)
 - Minimum recommended cardinality: 5000+ distinct values
 - False positive rate ~1% (configurable via bloom_filter_fpp)
+- Do not use inline `INDEX ... USING BLOOM FILTER` in generated DDL; use the table property above.
 
 ---
 
@@ -997,7 +1000,7 @@ CREATE TABLE embeddings (
     content VARCHAR(65533),
     embedding ARRAY<FLOAT> NOT NULL
 ) DUPLICATE KEY(doc_id)
-DISTRIBUTED BY HASH(doc_id) BUCKETS AUTO;
+DISTRIBUTED BY HASH(doc_id) BUCKETS 5;  -- ~10 GB compressed
 -- Add HNSW index:
 CREATE INDEX idx_vec ON embeddings(embedding) USING HNSW
 PROPERTIES("dim" = "768", "metric" = "cosine", "m" = "16", "ef_construction" = "200");
@@ -1015,13 +1018,13 @@ FROM embeddings ORDER BY dist LIMIT 10;
 **Impact: HIGH — Pre-computes JOINs so queries read a flat table instead of joining at runtime.**
 ```sql
 CREATE MATERIALIZED VIEW mv_order_details
-REFRESH SCHEDULE EVERY 10 MINUTES
+REFRESH AUTO ON SCHEDULE EVERY 10 MINUTE
 AS SELECT o.order_id, o.amount, p.product_name, c.customer_name
 FROM orders o
 JOIN products p ON o.product_id = p.product_id
 JOIN customers c ON o.customer_id = c.customer_id;
 ```
-**Refresh modes:** SCHEDULE (periodic), ON COMMIT (on base table change, limit: ≤5 updates/hr), MANUAL.
+**Refresh modes:** AUTO or COMPLETE with ON SCHEDULE (periodic), ON COMMIT (on base table change, limit: ≤5 updates/hr), or manual refresh.
 Reference: [Async Materialized View](https://doris.apache.org/docs/query-acceleration/materialized-view/async-materialized-view)
 
 ---
@@ -1041,7 +1044,7 @@ Reference: [Async Materialized View](https://doris.apache.org/docs/query-acceler
 ```sql
 CREATE MATERIALIZED VIEW mv_recent
 PROPERTIES ("partition_sync_limit" = "7")
-REFRESH SCHEDULE EVERY 1 HOUR
+REFRESH AUTO ON SCHEDULE EVERY 1 HOUR
 AS SELECT ... FROM orders ...;
 ```
 
@@ -1186,4 +1189,3 @@ PROPERTIES ("replication_num" = "3");  -- 3 replicas for HA
 Reference: [Apache Doris Installation](https://doris.apache.org/docs/install/cluster-deployment/standard-deployment)
 
 ---
-

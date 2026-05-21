@@ -25,7 +25,7 @@ tags: [schema, bucket, hash, random, pruning]
 ```sql
 -- BAD: RANDOM on a UNIQUE table (not supported)
 CREATE TABLE users (...) UNIQUE KEY(user_id)
-DISTRIBUTED BY RANDOM BUCKETS AUTO;
+DISTRIBUTED BY RANDOM BUCKETS 8;
 ```
 
 **Correct:**
@@ -33,11 +33,11 @@ DISTRIBUTED BY RANDOM BUCKETS AUTO;
 ```sql
 -- GOOD: HASH on primary key for UNIQUE
 CREATE TABLE users (...) UNIQUE KEY(user_id)
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO;
+DISTRIBUTED BY HASH(user_id) BUCKETS 8;  -- calculate: data_per_partition_GB × compression / 2
 
 -- GOOD: RANDOM for DUP when no filter column is obvious
 CREATE TABLE raw_logs (...) DUPLICATE KEY(log_time)
-DISTRIBUTED BY RANDOM BUCKETS AUTO;
+DISTRIBUTED BY RANDOM BUCKETS 3;  -- small table or full-scan workload
 ```
 
 Reference: [Data Distribution](https://doris.apache.org/docs/table-design/data-partitioning/data-distribution)

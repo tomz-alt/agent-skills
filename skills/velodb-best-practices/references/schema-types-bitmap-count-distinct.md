@@ -11,7 +11,7 @@ CREATE TABLE daily_uv (
     page VARCHAR(200) NOT NULL,
     uv BITMAP BITMAP_UNION
 ) AGGREGATE KEY(dt, page)
-DISTRIBUTED BY HASH(page) BUCKETS AUTO;
+DISTRIBUTED BY HASH(page) BUCKETS 5;  -- calculate: data_per_partition_GB × compression / 2
 -- Insert with to_bitmap():
 INSERT INTO daily_uv SELECT '2025-01-01', '/home', to_bitmap(user_id) FROM events;
 -- Query exact UV:

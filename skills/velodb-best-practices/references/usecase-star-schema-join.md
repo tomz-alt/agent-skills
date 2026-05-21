@@ -16,7 +16,7 @@ PARTITION BY RANGE(order_date) ()
 DISTRIBUTED BY HASH(store_id) BUCKETS 16
 PROPERTIES ("dynamic_partition.enable"="true","dynamic_partition.time_unit"="MONTH",
     "dynamic_partition.start"="-24","dynamic_partition.end"="1",
-    "dynamic_partition.prefix"="p","dynamic_partition.buckets"="16",
+    "dynamic_partition.prefix"="p",
     "colocate_with"="group_orders");
 ```
 ### Dimension Table (colocated)
@@ -27,18 +27,20 @@ CREATE TABLE dim_stores (
 DISTRIBUTED BY HASH(store_id) BUCKETS 16
 PROPERTIES ("colocate_with" = "group_orders");
 ```
-### Colocation Rules — ALL must match:
+### Colocation Rules — ALL must match or CREATE TABLE fails:
 1. Same `colocate_with` group name
 2. Same bucket key column(s) and same column types
-3. Same bucket count
+3. **Same bucket count** — if the first table in a group uses BUCKETS 8, ALL other tables in the group MUST also use BUCKETS 8. Mismatched counts cause: `Colocate tables must have same bucket num`
 4. Same replication_num
+
+**Common mistake:** Sizing each table's buckets independently, then adding them to the same colocation group. Always decide the bucket count for the group FIRST, then use that count for ALL tables in the group.
 
 ### Alternative: Broadcast JOIN + Runtime Filter (for small dims)
 When dimension tables are small (<1 GB), **skip colocation** — Doris auto-broadcasts them:
 ```sql
 -- Fact table: HASH on the JOIN key for runtime filter bucket pruning
 CREATE TABLE fact_events (
-    event_time DATETIME NOT NULL, conn_id VARCHAR(255), country VARCHAR(10),
+    event_time DATETIME NOT NULL, country VARCHAR(10), conn_id VARCHAR(255),
     adv_spend DECIMAL(12,2), views BIGINT
 ) DUPLICATE KEY(event_time, country)
 AUTO PARTITION BY RANGE(date_trunc(event_time, 'day'))()

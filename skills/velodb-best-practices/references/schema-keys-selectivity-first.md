@@ -24,4 +24,31 @@ DUPLICATE KEY(event_type, event_time, user_id)
 
 The first 3 columns (or first 36 bytes) form the **prefix index**, which is the primary lookup structure in Doris.
 
+**CRITICAL CONSTRAINT: Key columns must be the FIRST N columns of the schema, in the SAME order.**
+
+This is a hard Doris constraint — DDL will fail if violated. When writing CREATE TABLE:
+1. Decide which columns go in the key
+2. Put those columns FIRST in the column list, in the same order as the key
+3. Put all non-key columns AFTER the key columns
+
+```sql
+-- BAD: key says (log_time, account_id, action) but schema has session_id between account_id and action
+CREATE TABLE t (
+    log_time DATETIME,     -- key col 1 ✓
+    order_id BIGINT,       -- NOT a key col, but appears before key col 2 ✗
+    account_id VARCHAR(32),-- key col 2, but at schema position 3 ✗
+    session_id VARCHAR(32),-- NOT a key col, but appears before key col 3 ✗
+    action VARCHAR(50)     -- key col 3, but at schema position 5 ✗
+) DUPLICATE KEY(log_time, account_id, action)  -- ERROR
+
+-- GOOD: key columns first, then everything else
+CREATE TABLE t (
+    log_time DATETIME,     -- key col 1 ✓
+    account_id VARCHAR(32),-- key col 2 ✓
+    action VARCHAR(50),    -- key col 3 ✓
+    order_id BIGINT,       -- non-key, after all key cols ✓
+    session_id VARCHAR(32) -- non-key, after all key cols ✓
+) DUPLICATE KEY(log_time, account_id, action)  -- OK
+```
+
 Reference: [Sort Key](https://doris.apache.org/docs/table-design/index/prefix-index)

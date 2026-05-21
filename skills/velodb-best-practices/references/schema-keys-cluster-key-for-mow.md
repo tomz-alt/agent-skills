@@ -17,7 +17,7 @@ CREATE TABLE users (
     region VARCHAR(20),
     name VARCHAR(100)
 ) UNIQUE KEY(user_id)
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(user_id) BUCKETS 5  -- calculate: data_per_partition_GB × compression / 2
 PROPERTIES (
     "enable_unique_key_merge_on_write" = "true",
     "cluster_key" = "region, user_id"

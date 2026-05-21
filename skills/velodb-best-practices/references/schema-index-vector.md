@@ -12,7 +12,7 @@ CREATE TABLE embeddings (
     content VARCHAR(65533),
     embedding ARRAY<FLOAT> NOT NULL
 ) DUPLICATE KEY(doc_id)
-DISTRIBUTED BY HASH(doc_id) BUCKETS AUTO;
+DISTRIBUTED BY HASH(doc_id) BUCKETS 5;  -- calculate: data_per_partition_GB × compression / 2
 -- Add HNSW index:
 CREATE INDEX idx_vec ON embeddings(embedding) USING HNSW
 PROPERTIES("dim" = "768", "metric" = "cosine", "m" = "16", "ef_construction" = "200");

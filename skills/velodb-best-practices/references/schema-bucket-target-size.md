@@ -26,7 +26,7 @@ DISTRIBUTED BY HASH(order_id) BUCKETS 4
 DISTRIBUTED BY HASH(conn_id) BUCKETS 32
 ```
 
-**Avoid BUCKETS AUTO** — it obscures sizing intent and may pick suboptimal counts. Always calculate from known data volumes.
+Always write a numeric bucket count. Automatic bucket sizing obscures intent and may pick suboptimal counts; if volume is unknown, use a conservative explicit fallback such as 3, 8, 16, or 32 buckets based on expected table size.
 
 **Warning signs:**
 - Tablets < 100 MB → Too many buckets, reduce count

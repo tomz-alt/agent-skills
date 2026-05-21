@@ -10,14 +10,14 @@ For serving real-time analytics through APIs with low-latency, high-concurrency 
 CREATE TABLE user_profiles (
     user_id BIGINT NOT NULL, tenant_id INT NOT NULL,
     name VARCHAR(100), email VARCHAR(200), last_login DATETIME,
-    total_orders INT, lifetime_value DECIMAL(12,2),
-    INDEX idx_tenant (tenant_id) USING BLOOM FILTER
+    total_orders INT, lifetime_value DECIMAL(12,2)
 ) ENGINE=OLAP UNIQUE KEY(user_id)
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(user_id) BUCKETS 5  -- user profiles: calculate: data_per_partition_GB × compression / 2
 PROPERTIES (
     "enable_unique_key_merge_on_write" = "true",
     "store_row_column" = "true",
-    "light_schema_change" = "true"
+    "light_schema_change" = "true",
+    "bloom_filter_columns" = "tenant_id"
 );
 ```
 ### Why This Design

@@ -19,7 +19,7 @@ CREATE TABLE sparse_events (
 ) DUPLICATE KEY(event_time, user_id)
 AUTO PARTITION BY RANGE(date_trunc(event_time, 'month'))
 ()
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO;
+DISTRIBUTED BY HASH(user_id) BUCKETS 5;  -- sporadic events: calculate: data_per_partition_GB × compression / 2
 ```
 
 **When to use AUTO vs DYNAMIC:**

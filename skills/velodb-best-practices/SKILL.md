@@ -4,6 +4,15 @@ description: >
   VeloDB/Apache Doris table design and cluster sizing best practices.
   MUST USE when writing, reviewing, or optimizing Doris CREATE TABLE statements,
   partition/bucket strategies, data models, or cluster configurations.
+  ALSO MUST USE whenever the velodb-architecture-advisor skill produces DDL — apply
+  the Pre-Flight Checklist to every CREATE TABLE before output.
+  Also triggers on any workload design involving: IoT, analytics, dashboard, CDC,
+  time-series, log analysis, real-time warehouse, point query, data platform, or
+  any scenario where table design decisions are being made.
+  Also triggers on replacing or migrating from legacy analytics/search/serving
+  stacks such as Impala, Kudu, Elasticsearch/ES, Greenplum, Presto, HBase,
+  Hive, Hadoop, Redis, or Lambda-style multi-engine data platforms, even when
+  VeloDB/Doris is not named explicitly.
   Also use when user provides a VeloDB connection string or asks to get started.
   Also use when user mentions velo CLI, velocli, or wants to connect to VeloDB/Doris.
 license: Apache-2.0
@@ -64,11 +73,131 @@ Run through this checklist in order. Each step references the relevant rule:
 
 - [ ] **Data model** — UNIQUE (updates?) vs DUPLICATE (append?) vs AGGREGATE (pre-agg only?) → `schema-model-choose-for-workload`
 - [ ] **Partition strategy** — Time-series? AUTO PARTITION preferred. Small table? Skip. Do NOT combine AUTO with dynamic_partition. → `schema-partition-*`
-- [ ] **Bucket key + count** — HASH on JOIN key. Calculate explicit count: `daily_GB / target_tablet_GB`. Avoid BUCKETS AUTO. → `schema-bucket-*`
+- [ ] **Bucket key + count** — HASH on JOIN key. Calculate explicit count: `daily_GB / target_tablet_GB`. Use explicit fallback counts when volume is unknown: 3 for small dimensions, 8 for medium tables, 16-32 for large daily fact tables. → `schema-bucket-*`
 - [ ] **Sort key order** — High-selectivity first, fixed-length before VARCHAR → `schema-keys-*`
 - [ ] **Data types** — Native types, not STRING. DECIMAL not FLOAT. → `schema-types-*`
 - [ ] **Indexes** — BloomFilter for equality, Inverted for text, NGram for LIKE → `schema-index-*`
 - [ ] **Properties** — MoW enabled? Compression? Cloud mode replication_num=1? → `schema-props-*`
+- [ ] **DDL hard constraints** (VeloDB rejects DDL if any violated):
+  - UNIQUE KEY + PARTITION BY RANGE → partition column MUST be in the UNIQUE KEY: `UNIQUE KEY(id, dt) PARTITION BY RANGE(dt)`
+  - Key columns must be the FIRST N columns in schema, same order — put key cols first, non-key after. Example: `UNIQUE KEY(account_id, symbol)` means schema must start with `account_id, symbol, ...` — never place non-key columns between key columns
+  - `store_row_column = "true"` only works on UNIQUE MoW — NOT on AGGREGATE or DUPLICATE
+  - AUTO PARTITION requires `date_trunc()` AND empty parens: `AUTO PARTITION BY RANGE(date_trunc(col, 'day')) ()` — bare column name fails, missing `()` fails
+  - Dynamic partition requires explicit `PARTITION BY RANGE(col) ()` clause in DDL — properties alone are not enough
+  - Do not set `dynamic_partition.buckets`; put the numeric count only in `DISTRIBUTED BY HASH(col) BUCKETS N`
+  - `compaction_policy = "time_series"` only for DUPLICATE tables — fails on UNIQUE
+  - Async MV refresh: use `REFRESH AUTO ON SCHEDULE EVERY 10 MINUTE` or `REFRESH COMPLETE ON SCHEDULE EVERY 10 MINUTE` — NOT `REFRESH SCHEDULE EVERY`, NOT `REFRESH ASYNC EVERY(INTERVAL ...)`. Minimum interval: 1 MINUTE
+  - MV using `NOW()`/`CURDATE()`: add `PROPERTIES ("enable_nondeterministic_function" = "true")`
+  - BOOLEAN defaults must be quoted: `DEFAULT "true"` not `DEFAULT TRUE`
+  - BloomFilter index: use `PROPERTIES ("bloom_filter_columns" = "col1,col2")` — NOT inline `INDEX ... USING BLOOM FILTER`
+  - AGGREGATE column syntax: aggregation function BEFORE default: `col BIGINT SUM DEFAULT "0"` — NOT `col BIGINT DEFAULT "0" SUM`
+  - AGGREGATE `DEFAULT "null"` only works for VARCHAR — fails on INT, DATE, DECIMAL, BIGINT. Omit DEFAULT entirely for REPLACE_IF_NOT_NULL on non-string types: `vip_level INT REPLACE_IF_NOT_NULL` (not `DEFAULT "null"`)
+  - `enable_unique_key_partial_update` is a session variable, NOT a table property
+  - Full details: `schema-ddl-gotchas`
+
+---
+
+## 2b ▸ DDL Templates (copy the closest match, customize columns)
+
+For each CREATE TABLE, select the closest template below. Customize column names, types, bucket count, and partition settings. Do NOT write DDL from scratch.
+
+### T1: Append-only events/logs (DUPLICATE)
+```sql
+CREATE TABLE events (
+    entity_id    VARCHAR(64)  NOT NULL,
+    event_time   DATETIME     NOT NULL,
+    event_type   VARCHAR(50)  NOT NULL,
+    payload      VARIANT
+) DUPLICATE KEY(entity_id, event_time, event_type)
+PARTITION BY RANGE(event_time) ()
+DISTRIBUTED BY HASH(entity_id) BUCKETS 10
+PROPERTIES (
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.start" = "-90",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "compression" = "zstd",
+    "compaction_policy" = "time_series",
+    "replication_num" = "1"
+);
+```
+
+### T2: Updatable with partition (UNIQUE MoW + CDC)
+```sql
+CREATE TABLE orders (
+    order_id     BIGINT       NOT NULL,
+    order_time   DATETIME     NOT NULL,
+    update_time  DATETIME     NOT NULL,
+    status       VARCHAR(20),
+    amount       DECIMAL(18,2)
+) UNIQUE KEY(order_id, order_time)
+PARTITION BY RANGE(order_time) ()
+DISTRIBUTED BY HASH(order_id) BUCKETS 5
+PROPERTIES (
+    "enable_unique_key_merge_on_write" = "true",
+    "function_column.sequence_col" = "update_time",
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.start" = "-365",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "replication_num" = "1"
+);
+```
+
+### T3: Small dimension / lookup (UNIQUE, no partition)
+```sql
+CREATE TABLE dim_product (
+    product_id   INT          NOT NULL,
+    name         VARCHAR(200),
+    category     VARCHAR(50)
+) UNIQUE KEY(product_id)
+DISTRIBUTED BY HASH(product_id) BUCKETS 3
+PROPERTIES (
+    "enable_unique_key_merge_on_write" = "true",
+    "replication_num" = "1"
+);
+```
+
+### T4: Pre-aggregated KPIs (AGGREGATE)
+```sql
+CREATE TABLE daily_kpi (
+    stat_date    DATE         NOT NULL,
+    dimension    VARCHAR(50)  NOT NULL,
+    metric_sum   BIGINT       SUM DEFAULT "0",
+    metric_max   DOUBLE       MAX DEFAULT "0",
+    unique_users BITMAP       BITMAP_UNION
+) AGGREGATE KEY(stat_date, dimension)
+PARTITION BY RANGE(stat_date) ()
+DISTRIBUTED BY HASH(dimension) BUCKETS 3
+PROPERTIES (
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "MONTH",
+    "dynamic_partition.start" = "-12",
+    "dynamic_partition.end" = "1",
+    "dynamic_partition.prefix" = "p",
+    "replication_num" = "1"
+);
+```
+
+### T5: Point query / API serving (UNIQUE MoW + row store)
+```sql
+CREATE TABLE user_profiles (
+    user_id      BIGINT       NOT NULL,
+    update_time  DATETIME     NOT NULL,
+    name         VARCHAR(100),
+    data         VARIANT
+) UNIQUE KEY(user_id)
+DISTRIBUTED BY HASH(user_id) BUCKETS 5
+PROPERTIES (
+    "enable_unique_key_merge_on_write" = "true",
+    "function_column.sequence_col" = "update_time",
+    "store_row_column" = "true",
+    "light_schema_change" = "true",
+    "replication_num" = "1"
+);
+```
 
 ---
 

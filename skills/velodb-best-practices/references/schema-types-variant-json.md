@@ -12,7 +12,7 @@ CREATE TABLE events (
     event_id BIGINT NOT NULL,
     data VARIANT
 ) DUPLICATE KEY(event_time, event_id)
-DISTRIBUTED BY HASH(event_id) BUCKETS AUTO;
+DISTRIBUTED BY HASH(event_id) BUCKETS 5;  -- calculate: data_per_partition_GB × compression / 2
 -- Query nested fields directly:
 SELECT data['user']['name'], data['action'] FROM events;
 ```

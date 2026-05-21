@@ -37,7 +37,7 @@ CREATE TABLE orders (
     status VARCHAR(20),
     amount DECIMAL(12,2)
 ) UNIQUE KEY(order_id)
-DISTRIBUTED BY HASH(order_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(order_id) BUCKETS 5  -- calculate: data_per_partition_GB × compression / 2
 PROPERTIES ("enable_unique_key_merge_on_write" = "true");
 ```
 

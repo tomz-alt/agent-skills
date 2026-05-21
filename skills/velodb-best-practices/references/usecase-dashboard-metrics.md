@@ -15,7 +15,7 @@ CREATE TABLE daily_sales_metrics (
     unique_buyers BITMAP BITMAP_UNION
 ) ENGINE=OLAP AGGREGATE KEY(dt, store_id)
 PARTITION BY RANGE(dt) ()
-DISTRIBUTED BY HASH(store_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(store_id) BUCKETS 5  -- pre-aggregated metrics: calculate: data_per_partition_GB × compression / 2
 PROPERTIES ("dynamic_partition.enable"="true","dynamic_partition.time_unit"="MONTH",
     "dynamic_partition.start"="-12","dynamic_partition.end"="1","dynamic_partition.prefix"="p");
 ```

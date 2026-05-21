@@ -18,7 +18,7 @@ CREATE TABLE users (
     name VARCHAR(100),
     email VARCHAR(200)
 ) UNIQUE KEY(user_id)
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(user_id) BUCKETS 5  -- CDC table: calculate: data_per_partition_GB × compression / 2
 PROPERTIES (
     "enable_unique_key_merge_on_write" = "true",
     "function_column.sequence_col" = "update_time"

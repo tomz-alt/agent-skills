@@ -16,7 +16,7 @@ CREATE TABLE users_sync (
     status TINYINT
 ) ENGINE=OLAP
 UNIQUE KEY(user_id)
-DISTRIBUTED BY HASH(user_id) BUCKETS AUTO
+DISTRIBUTED BY HASH(user_id) BUCKETS 5  -- CDC table: calculate: data_per_partition_GB × compression / 2
 PROPERTIES (
     "enable_unique_key_merge_on_write" = "true",
     "function_column.sequence_col" = "update_time",
@@ -31,6 +31,6 @@ PROPERTIES (
 | **Bucket** | HASH on `user_id` (= primary key) | Point lookups on PK are pruned to one tablet. |
 | **Partition** | None | CDC tables are often small-to-medium; partition only if > 100GB. |
 ### Customization Points
-- **Large CDC tables (> 100GB):** Add `PARTITION BY RANGE(update_time) ()` with dynamic partition
+- **Large CDC tables (> 100GB):** Add `PARTITION BY RANGE(update_time) ()` with dynamic partition. **CRITICAL:** The partition column must be in the UNIQUE KEY — change to `UNIQUE KEY(user_id, update_time)`
 - **Composite primary key:** Use `UNIQUE KEY(tenant_id, user_id)` for multi-tenant data
-- **Partial column updates:** Set `"enable_unique_key_partial_update" = "true"`
+- **Partial column updates:** Do NOT set `enable_unique_key_partial_update` as a table property — it is a session variable. Set it at write time: `SET enable_unique_key_partial_update = true;` before your INSERT/Stream Load.

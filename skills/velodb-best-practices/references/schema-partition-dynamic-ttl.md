@@ -13,7 +13,7 @@ Key properties:
 - `time_unit`: DAY, WEEK, MONTH
 - `start`: Negative number = how many units to keep (TTL). E.g., `"-7"` keeps 7 days.
 - `end`: Positive number = how many future partitions to pre-create
-- `buckets`: AUTO or fixed number per partition
+- Bucket count belongs in `DISTRIBUTED BY ... BUCKETS N`, not in dynamic partition properties.
 
 ```sql
 PROPERTIES (
@@ -21,8 +21,7 @@ PROPERTIES (
     "dynamic_partition.time_unit" = "DAY",
     "dynamic_partition.start" = "-7",
     "dynamic_partition.end" = "3",
-    "dynamic_partition.prefix" = "p",
-    "dynamic_partition.buckets" = "AUTO"
+    "dynamic_partition.prefix" = "p"
 );
 ```
 
