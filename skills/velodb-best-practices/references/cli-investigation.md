@@ -34,6 +34,12 @@ Evidence-first runtime diagnosis using velocli. Collect profile, tablet, DDL, st
 - If no evidence is available yet, the correct response is a short investigation plan plus the first read-only command to run, not a diagnosis
 - After collecting evidence, report findings as hypotheses with confidence and caveats, not as guaranteed root causes
 
+**Output ban when no evidence has been collected or attempted:** Do not include sections named or containing: "Likely causes", "Root cause", "Recommended fixes", "Quick wins", "Optimization plan", CREATE TABLE, CREATE MATERIALIZED VIEW, ALTER TABLE, SET session variables, or any tuning parameter recommendations. The only permitted output before evidence is: (1) investigation plan listing the commands to run, (2) the commands themselves, (3) a request for the user to provide output or confirm execution. Hypotheses are allowed only after at least one evidence command has returned output or the user has provided equivalent data.
+
+### Connection-First Rule
+
+If the user reports that `velocli sql`, `velocli profile get`, or any CLI command **fails, times out, or returns an error**, treat it as a connection-layer problem first, not a query performance problem. The first command must be `velocli auth status --format json`. Do not suggest query timeout changes, session variables, DDL, or performance tuning until connectivity (mysql_status, http_status) is confirmed working. If the cluster is Cloud-managed, also check `velocli cloud cluster get --format json` (cluster may be Suspended).
+
 ---
 
 ### Evidence Collection Workflows
@@ -244,8 +250,11 @@ SHOW DATA SKEW FROM db.table_name;
 -- Column statistics (cardinality)
 SHOW COLUMN STATS db.table_name;
 
--- Recent queries (requires FE access)
--- http://<fe_host>:<http_port>/rest/v2/manager/query/query_info
+-- Recent queries (requires FE HTTP access)
+-- GET http://<fe_host>:<http_port>/rest/v2/manager/query/query_info?is_all_node=true
+
+-- Fetch a specific profile by query_id (requires FE HTTP access)
+-- GET http://<fe_host>:<http_port>/rest/v2/manager/query/profile/text/<query_id>?is_all_node=true
 ```
 
 Limitations: no structured JSON, no `profile get` equivalent without HTTP API access, no `profile diff` or `profile history`. Analysis will be less precise — state this upfront.

@@ -42,6 +42,57 @@ Operational workflows for VeloDB Cloud using `velocli`.
 
 ---
 
+## Canonical Command Names
+
+Use only these command forms. Do not invent aliases.
+
+| Correct | Never use |
+|---------|-----------|
+| `velocli auth add` | `velocli auth login`, `velocli login` |
+| `velocli auth list` | `velocli auth ls` |
+| `velocli auth status` | `velocli status` |
+| `velocli cloud warehouse ls` | `velocli warehouse list`, `velocli warehouse ls` |
+| `velocli cloud cluster ls` | `velocli cluster list` |
+| `velocli cloud cluster get` | `velocli cluster info` |
+| `velocli cloud use` | `velocli context set` |
+| `velocli cloud ctx` | `velocli context` |
+| `velocli cloud public-access get` | `velocli network status` |
+| `velocli cloud audit ls` | `velocli audit list` |
+| API host: `sandbox.velodb.io` | `api.sandbox.velodb.cloud`, `sandbox-api.velodb.io` |
+| API host: `api.velodb.cloud` | `velodb.cloud/api` |
+| API host: `api.selectdb.com` | `api.selectdb.cn` |
+
+## Canonical Environment Variables
+
+Use these exact names. Do not invent alternatives.
+
+| Correct | Never use |
+|---------|-----------|
+| `VELO_CLOUD_TOKEN` | `VELO_API_KEY`, `VELO_CLOUD_API_KEY` (env var name) |
+| `VELO_CLOUD_API_HOST` | `VELO_API_HOST` |
+| `VELO_CURRENT_WAREHOUSE` | `VELO_WAREHOUSE` |
+| `VELO_CURRENT_CLUSTER` | `VELO_CLUSTER` |
+| `VELO_HOST` | `VELOCLI_HOST` |
+| `VELO_USER` | `VELOCLI_USER` |
+| `VELO_PASSWORD` | `VELOCLI_PASSWORD` |
+| Config dir: `~/.velodb/` | `~/.velocli/`, `~/.velo/` |
+
+Note: `$VELO_CLOUD_API_KEY` is fine as a user-chosen shell variable name when storing the key for `--api-key`. The table above is about the stateless-mode env vars that velocli reads internally.
+
+---
+
+## Mutation Response Template
+
+Every mutating Cloud operation must follow this pattern:
+
+1. **Read current state**: run discovery command (e.g., `cluster get`, `public-access get`, `cluster ls`)
+2. **Show impact**: target resource name/id, current state, requested change, user impact (billing, downtime, connectivity, credential rotation)
+3. **Ask confirmation**: "Proceed with `<exact command>`?" — a clear yes/no question. Do not treat the user's initial request as confirmation
+4. **Execute after confirmation**: run the command
+5. **Verify**: run a read-only command to confirm the result (e.g., `cluster get`, `sql "SELECT 1"`, `public-access get`)
+
+---
+
 ## Core Workflows
 
 ### Onboarding (New Cloud Environment)
