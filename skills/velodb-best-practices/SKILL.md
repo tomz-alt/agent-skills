@@ -14,7 +14,11 @@ description: >
   Hive, Hadoop, Redis, or Lambda-style multi-engine data platforms, even when
   VeloDB/Doris is not named explicitly.
   Also use when user provides a VeloDB connection string or asks to get started.
-  Also use when user mentions velo CLI, velocli, or wants to connect to VeloDB/Doris.
+  Also triggers on slow query investigation, query profiling, runtime performance
+  diagnosis, tablet skew analysis, and table health checks — any scenario where
+  runtime evidence (profile output, tablet distribution) informs optimization.
+  For Cloud operations (auth, cluster lifecycle, billing, networking), defer to
+  the velocli-cloud skill.
 license: Apache-2.0
 metadata:
   author: VeloDB
@@ -48,7 +52,9 @@ metadata:
 | User behavior / funnel analysis | `schema-types-bitmap-count-distinct` | BITMAP_UNION, bitmap_intersect |
 | Semi-structured JSON data | `schema-types-variant-json` | VARIANT type, schema_template |
 
-### My query is slow because…
+### My query is slow after evidence shows…
+
+For live slow-query or runtime diagnosis, do **not** use this table as the first response. First read `references/cli-investigation.md` and collect or attempt evidence (`profile get`, `profile list`, `profile history`, `tablet`, `EXPLAIN`, or `auth status`). Use this table only after evidence points to the symptom.
 
 | Symptom | Check These Rules | Quick Fix |
 |---------|------------------|-----------|
@@ -205,25 +211,38 @@ PROPERTIES (
 
 ### Detect VeloCLI
 
-Before running any queries, check for the `velo` CLI tool:
+Before running any queries, detect the CLI binary:
 
-1. Check `VELO_CLI_PATH` env var — if set, use that binary path
-2. Otherwise run `which velo` — if found, use it from PATH
-3. If neither: fall back to `mysql` client (see `references/start-*.md`)
+1. Check `VELOCLI_PATH` env var — if set, use that binary path
+2. `command -v velocli` — use from PATH
+3. `command -v sdbcli` — only for explicit SelectDB environments
+4. If none available: fall back to `mysql` client (see `references/start-*.md`)
 
 ### When VeloCLI is available, prefer it for all operations:
 
 | Task | VeloCLI Command |
 |------|-----------------|
-| Run SQL | `velo sql "SELECT ..."` |
-| DDL inspection | `velo sql "SHOW CREATE TABLE db.t"` |
-| Table/tablet health | `velo tablet db.t` (overview) or `velo tablet db.t --detail` |
-| Profile a slow query | `velo sql "SELECT ..." --profile` → captures query_id |
-| Get query profile | `velo profile get <qid>` or `--full` for complete diagnosis |
-| Compare fast vs slow | `velo profile diff <slow_qid> <fast_qid>` |
-| Performance trend | `velo profile history <sql_pattern> --days 7` |
-| Test connection | `velo auth status` |
-| Switch environment | `velo use <name>` |
+| Run SQL | `velocli sql "SELECT ..."` |
+| DDL inspection | `velocli sql "SHOW CREATE TABLE db.t"` |
+| Table/tablet health | `velocli tablet db.t` (overview) or `velocli tablet db.t --detail` |
+| Profile a slow query | `velocli sql "SELECT ..." --profile` → captures query_id |
+| Get query profile | `velocli profile get <qid>` or `--full` for complete diagnosis |
+| Compare fast vs slow | `velocli profile diff <slow_qid> <fast_qid>` |
+| Performance trend | `velocli profile history <sql_pattern> --days 7` |
+| Test connection | `velocli auth status` |
+| Switch environment | `velocli use <name>` |
+
+### Runtime Query Investigation
+
+For slow queries or runtime performance issues, read `references/cli-investigation.md`.
+
+- **Evidence first is mandatory**: collect or attempt profile, tablet, DDL, stats, EXPLAIN, history, active-query, or connection evidence before forming hypotheses. If evidence cannot be collected locally, state that and provide the exact commands to run
+- **Prefer existing profiles**: use `profile get <query_id>`, `profile list`, or `profile history` before re-executing SQL
+- **Proactive discovery**: for vague slow-query reports, start with `auth status`, `profile list --active`, and recent `profile list` before asking the user for more context
+- **Safety gate**: before running user SQL with `--profile`, check whether it is safe (no DDL, no mutation, no unbounded scan). For unknown, peak-hour, or expensive SQL, run `velocli sql "EXPLAIN <query>" --format json` first and ask confirmation or request an existing query_id
+- **Hypotheses, not verdicts**: diagnostic mappings are heuristics. Present evidence, likely cause, what to check next, and when the conclusion may be wrong
+- If velocli is unavailable, fall back to SQL commands listed in the reference
+- Always use `--format json` for structured agent-readable output
 
 ### Quick-start guides
 
