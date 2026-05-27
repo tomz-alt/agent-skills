@@ -175,20 +175,36 @@ show_prereqs() {
     printf "    ${DIM}•${RESET} HTTP port:    ${DIM}8080 (VeloDB Cloud) or 8030 (self-hosted Doris)${RESET}\n\n"
 }
 
+maybe_ask_velocli() {
+    echo
+    if command -v velocli >/dev/null 2>&1; then
+        printf "  ${CHECK} velocli already installed: ${CYAN}$(velocli --version)${RESET}\n"
+    elif command -v npx >/dev/null 2>&1 && npx velocli --version >/dev/null 2>&1; then
+        printf "  ${CHECK} velocli available via npx: ${CYAN}$(npx velocli --version 2>/dev/null)${RESET}\n"
+    else
+        printf "  ${DIAMOND} ${BOLD}Install velocli CLI?${RESET} ${DIM}(optional — enables query profiling & Cloud management)${RESET}\n"
+        printf "  ${ARROW} Install velocli? ${DIM}[y/N]:${RESET} "; read -r yc
+        case "${yc:-n}" in
+            [yY]*) install_velocli ;;
+            *) printf "  ${DIM}○ Skipped. Install later: npm install -g @velodb/velocli${RESET}\n" ;;
+        esac
+    fi
+}
+
 case "${1:-}" in
-    --claude)       show_banner; install_all_skills_to_dir "${AGENT_DIRS[claude]}"; show_summary ;;
-    --antigravity)  show_banner; install_all_skills_to_dir "${AGENT_DIRS[antigravity]}"; show_summary ;;
-    --cursor)       show_banner; install_all_skills_to_dir "${AGENT_DIRS[cursor]}"; show_summary ;;
-    --windsurf)     show_banner; install_all_skills_to_dir "${AGENT_DIRS[windsurf]}"; show_summary ;;
-    --codex)        show_banner; install_all_skills_to_dir "${AGENT_DIRS[codex]}"; show_summary ;;
-    --gemini)       show_banner; install_all_skills_to_dir "${AGENT_DIRS[gemini]}"; show_summary ;;
-    --kiro)         show_banner; install_all_skills_to_dir "${AGENT_DIRS[kiro]}"; show_summary ;;
-    --all)          show_banner; install_all_detected; show_summary ;;
+    --claude)       show_banner; install_all_skills_to_dir "${AGENT_DIRS[claude]}"; maybe_ask_velocli; show_summary ;;
+    --antigravity)  show_banner; install_all_skills_to_dir "${AGENT_DIRS[antigravity]}"; maybe_ask_velocli; show_summary ;;
+    --cursor)       show_banner; install_all_skills_to_dir "${AGENT_DIRS[cursor]}"; maybe_ask_velocli; show_summary ;;
+    --windsurf)     show_banner; install_all_skills_to_dir "${AGENT_DIRS[windsurf]}"; maybe_ask_velocli; show_summary ;;
+    --codex)        show_banner; install_all_skills_to_dir "${AGENT_DIRS[codex]}"; maybe_ask_velocli; show_summary ;;
+    --gemini)       show_banner; install_all_skills_to_dir "${AGENT_DIRS[gemini]}"; maybe_ask_velocli; show_summary ;;
+    --kiro)         show_banner; install_all_skills_to_dir "${AGENT_DIRS[kiro]}"; maybe_ask_velocli; show_summary ;;
+    --all)          show_banner; install_all_detected; maybe_ask_velocli; show_summary ;;
     --velocli)      show_banner; install_velocli; echo ;;
     --prereqs)      show_banner; show_prereqs ;;
     --path)         show_banner
                     [[ -z "${2:-}" ]] && { printf "  ${CROSS} --path needs a directory\n"; exit 1; }
-                    install_all_skills_to_dir "$2"; show_summary ;;
+                    install_all_skills_to_dir "$2"; maybe_ask_velocli; show_summary ;;
     --help|-h)      show_banner
         printf "  ${BOLD}Usage:${RESET}\n\n"
         printf "    ./install.sh               ${DIM}Interactive menu${RESET}\n"
@@ -225,21 +241,7 @@ case "${1:-}" in
             7) show_prereqs; exit 0 ;;
         esac
 
-        # Offer velocli install if not already available
-        echo
-        if command -v velocli >/dev/null 2>&1; then
-            printf "  ${CHECK} velocli already installed: ${CYAN}$(velocli --version)${RESET}\n"
-        elif command -v npx >/dev/null 2>&1 && npx velocli --version >/dev/null 2>&1; then
-            printf "  ${CHECK} velocli available via npx: ${CYAN}$(npx velocli --version 2>/dev/null)${RESET}\n"
-        else
-            printf "  ${DIAMOND} ${BOLD}Install velocli CLI?${RESET} ${DIM}(optional — enables query profiling & Cloud management)${RESET}\n"
-            printf "  ${ARROW} Install velocli? ${DIM}[y/N]:${RESET} "; read -r yc
-            case "${yc:-n}" in
-                [yY]*) install_velocli ;;
-                *) printf "  ${DIM}○ Skipped. Install later: npm install -g @velodb/velocli${RESET}\n" ;;
-            esac
-        fi
-
+        maybe_ask_velocli
         show_summary ;;
     *) printf "  ${CROSS} Unknown: $1. Use --help\n"; exit 1 ;;
 esac
