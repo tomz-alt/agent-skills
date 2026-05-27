@@ -11,9 +11,7 @@ If the user doesn't have credentials yet, guide them to the right place:
 
 **VeloDB Cloud API key:**
 - Go to the VeloDB Cloud console → Organization → API Keys
-- International: `https://www.velodb.cloud/organization/api-keys`
-- China: `https://console.selectdb.com/organization/api-keys`
-- Sandbox: `https://sandbox.velodb.io/organization/api-keys`
+- `https://www.velodb.cloud/organization/api-keys`
 - Copy the API key (starts with `sk-`). Store it in an env var, not in chat
 
 **MySQL password:**

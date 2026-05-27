@@ -55,9 +55,7 @@ Operational workflows for VeloDB Cloud. Manages the full Cloud lifecycle without
 - [Node.js](https://nodejs.org/) ≥ 16
 - velocli CLI: `npm install -g @velodb/velocli`
 - VeloDB Cloud API key — get one from your Cloud console:
-  - International: https://www.velodb.cloud/organization/api-keys
-  - China: https://console.selectdb.com/organization/api-keys
-  - Sandbox: https://sandbox.velodb.io/organization/api-keys
+  - https://www.velodb.cloud/organization/api-keys
 - MySQL password (set during warehouse creation in the Cloud console)
 
 **Connection info** is available in the Cloud console under each warehouse's **Connection Methods** page:
