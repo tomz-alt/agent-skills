@@ -25,8 +25,6 @@ User prompt
 
 Translates business requirements into VeloDB/Doris architecture designs. Covers workload classification, cluster sizing, data model selection (DUPLICATE / UNIQUE / AGGREGATE), ingestion strategy, and generates initial DDL.
 
-**Triggers on**: "design a table for...", "how should I store...", "we have X devices sending data every Y seconds", "recommend a cluster size", "migrate from Impala/Kudu/ES/Greenplum/HBase/Hive to VeloDB", or any OLAP workload description.
-
 **Includes**: 8 decision frameworks (sizing matrix, data model selection, ingestion strategy, time-series design, mutable state, query acceleration, deployment mode, workload classification) and 10 industry examples (IoT, log/observability, CDC, securities, retail, logistics, web3, payment, gaming, adtech).
 
 ### velodb-best-practices — Validate + Diagnose
