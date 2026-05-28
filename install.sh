@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# VeloDB Agent Skills Installer v3.0
-# Installs all skills into agent-specific skill directories
+# VeloDB Agent Skills Installer v4.0
+# Install, update, or uninstall skills at project or global level
 set -euo pipefail
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'
 WHITE='\033[1;37m'; DIM='\033[2m'; BOLD='\033[1m'; RESET='\033[0m'; BLUE='\033[0;34m'; MAGENTA='\033[0;35m'; YELLOW='\033[0;33m'
@@ -9,6 +9,35 @@ CHECK="${GREEN}✓${RESET}"; CROSS="${RED}✗${RESET}"; ARROW="${CYAN}▸${RESET
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILLS_DIR="$SCRIPT_DIR/skills"
 SKILLS=("velodb-architecture-advisor" "velodb-best-practices" "velocli-cloud")
+VERSION="4.0.0"
+
+# Defaults: project-level, install action
+SCOPE="project"  # project | global
+ACTION="install"  # install | uninstall | update
+TARGET_AGENT=""
+CUSTOM_PATH=""
+
+# Agent config directory names (relative — prefixed with $HOME or $PWD depending on scope)
+declare -A AGENT_SUBDIRS=(
+    [claude]=".claude/skills"
+    [antigravity]=".agents/skills"
+    [cursor]=".cursor/skills"
+    [windsurf]=".windsurf/skills"
+    [codex]=".codex/skills"
+    [gemini]=".gemini/skills"
+    [copilot]=".github/copilot/skills"
+    [kiro]=".kiro/skills"
+)
+
+resolve_dir() {
+    local agent="$1"
+    local subdir="${AGENT_SUBDIRS[$agent]}"
+    if [[ "$SCOPE" == "global" ]]; then
+        echo "$HOME/$subdir"
+    else
+        echo "$(pwd)/$subdir"
+    fi
+}
 
 show_banner() {
     echo; printf "${BLUE}"
@@ -20,7 +49,7 @@ show_banner() {
     │   ╚██╗ ██╔╝██╔══╝  ██║     ██║   ██║    │
     │    ╚████╔╝ ███████╗███████╗╚██████╔╝    │
     │     ╚═══╝  ╚══════╝╚══════╝ ╚═════╝     │
-    │         Agent Skills v3.0               │
+    │         Agent Skills v4.0               │
     ╰─────────────────────────────────────────╯
 B
     printf "${RESET}\n"
@@ -37,6 +66,8 @@ progress_bar() {
     printf "\r  ${DIM}[${RESET}${GREEN}%s${RESET}${DIM}]${RESET} ${WHITE}%3d%%${RESET}" "$b" "$pct"
 }
 
+# ─── Install ────────────────────────────────────────────────────────────────
+
 install_skill_to_dir() {
     local skill_name="$1" target_base="$2"
     local src="$SKILLS_DIR/$skill_name"
@@ -47,10 +78,13 @@ install_skill_to_dir() {
         return 1
     fi
 
+    # Clean previous install
+    [[ -d "$dest" ]] && rm -rf "$dest"
+    [[ -L "$dest" ]] && rm -f "$dest"
+
     mkdir -p "$dest"
     [[ -d "$src/references" ]] && mkdir -p "$dest/references"
 
-    # Count files
     local fs=() rs=()
     for f in "$src"/*.md; do [[ -f "$f" ]] && fs+=("$f"); done
     if [[ -d "$src/references" ]]; then
@@ -69,42 +103,97 @@ install_all_skills_to_dir() {
     for skill in "${SKILLS[@]}"; do
         install_skill_to_dir "$skill" "$target_base"
     done
+    # Write version marker
+    echo "$VERSION" > "$target_base/.velodb-skills-version"
 }
 
-# Agent install paths
-declare -A AGENT_DIRS=(
-    [claude]="$HOME/.claude/skills"
-    [antigravity]="$HOME/.gemini/antigravity/skills"
-    [cursor]="$HOME/.cursor/skills"
-    [windsurf]="$HOME/.codeium/windsurf/skills"
-    [codex]="$HOME/.codex/skills"
-    [gemini]="$HOME/.gemini-cli/skills"
-    [copilot]="$HOME/.github/copilot/skills"
-    [kiro]="$HOME/.kiro/skills"
-)
+# ─── Uninstall ──────────────────────────────────────────────────────────────
+
+uninstall_skills_from_dir() {
+    local target_base="$1"
+    local removed=0
+    for skill in "${SKILLS[@]}"; do
+        local dest="$target_base/$skill"
+        if [[ -d "$dest" ]] || [[ -L "$dest" ]]; then
+            rm -rf "$dest"
+            printf "  ${CHECK} Removed ${CYAN}%s${RESET} from %s\n" "$skill" "$target_base"
+            removed=$((removed+1))
+        fi
+    done
+    # Remove version marker
+    rm -f "$target_base/.velodb-skills-version"
+    if [[ $removed -eq 0 ]]; then
+        printf "  ${DIM}○ No VeloDB skills found in %s${RESET}\n" "$target_base"
+    else
+        printf "\n  ${CHECK} Removed ${WHITE}%d${RESET} skill(s)\n" "$removed"
+    fi
+}
+
+# ─── Update ─────────────────────────────────────────────────────────────────
+
+update_skills_in_dir() {
+    local target_base="$1"
+    local has_skills=false
+    for skill in "${SKILLS[@]}"; do
+        [[ -d "$target_base/$skill" ]] && has_skills=true && break
+    done
+
+    if [[ "$has_skills" == false ]]; then
+        printf "  ${DIM}○ No VeloDB skills found in %s — nothing to update${RESET}\n" "$target_base"
+        return
+    fi
+
+    local old_version="unknown"
+    [[ -f "$target_base/.velodb-skills-version" ]] && old_version="$(cat "$target_base/.velodb-skills-version")"
+    printf "  ${ARROW} Updating ${DIM}(%s → %s)${RESET}\n" "$old_version" "$VERSION"
+    install_all_skills_to_dir "$target_base"
+}
+
+# ─── Agent detection ────────────────────────────────────────────────────────
 
 detect_agents() {
     local found=()
-    for name in "${!AGENT_DIRS[@]}"; do
-        local dir="${AGENT_DIRS[$name]}"
+    for name in "${!AGENT_SUBDIRS[@]}"; do
+        local dir
+        dir="$(resolve_dir "$name")"
         local parent="$(dirname "$dir")"
         [[ -d "$parent" ]] && found+=("$name")
     done
     echo "${found[@]}"
 }
 
-install_all_detected() {
+run_on_all_detected() {
+    local action_fn="$1"
     local agents=($(detect_agents))
     if [[ ${#agents[@]} -eq 0 ]]; then
-        printf "  ${CROSS} No agents detected. Use ${WHITE}--path DIR${RESET} to install manually.\n"
+        printf "  ${CROSS} No agents detected. Use ${WHITE}--agent <name>${RESET} or ${WHITE}--path DIR${RESET}.\n"
         return 1
     fi
-    printf "  ${DIAMOND} Detected ${WHITE}${#agents[@]}${RESET} agent(s): ${CYAN}%s${RESET}\n\n" "${agents[*]}"
+    local scope_label="project"
+    [[ "$SCOPE" == "global" ]] && scope_label="global (~)"
+    printf "  ${DIAMOND} Detected ${WHITE}${#agents[@]}${RESET} agent(s) ${DIM}[%s]${RESET}: ${CYAN}%s${RESET}\n\n" "$scope_label" "${agents[*]}"
     for name in "${agents[@]}"; do
-        printf "\n  ${BOLD}[%s]${RESET}\n" "$name"
-        install_all_skills_to_dir "${AGENT_DIRS[$name]}"
+        local dir
+        dir="$(resolve_dir "$name")"
+        printf "\n  ${BOLD}[%s]${RESET} %s\n" "$name" "$dir"
+        $action_fn "$dir"
     done
 }
+
+run_on_agent() {
+    local agent="$1" action_fn="$2"
+    if [[ -z "${AGENT_SUBDIRS[$agent]+x}" ]]; then
+        printf "  ${CROSS} Unknown agent: ${WHITE}%s${RESET}\n" "$agent"
+        printf "  ${DIM}Supported: %s${RESET}\n" "${!AGENT_SUBDIRS[*]}"
+        exit 1
+    fi
+    local dir
+    dir="$(resolve_dir "$agent")"
+    printf "\n  ${BOLD}[%s]${RESET} %s\n" "$agent" "$dir"
+    $action_fn "$dir"
+}
+
+# ─── velocli ────────────────────────────────────────────────────────────────
 
 install_velocli() {
     echo
@@ -124,57 +213,6 @@ install_velocli() {
     fi
 }
 
-show_summary() {
-    echo; printf "  ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n\n"
-    printf "  ${CHECK} ${BOLD}Installation complete!${RESET}\n\n"
-    printf "  ${DIAMOND} ${WHITE}What's included:${RESET}\n"
-    printf "     ${DIM}├─${RESET} ${BOLD}velodb-architecture-advisor${RESET}\n"
-    printf "     ${DIM}│  ${RESET} ${DIM}8 decision frameworks · 10 industry examples${RESET}\n"
-    printf "     ${DIM}│  ${RESET} ${DIM}IoT, retail, securities, logistics, gaming, adtech...${RESET}\n"
-    printf "     ${DIM}├─${RESET} ${BOLD}velodb-best-practices${RESET}\n"
-    printf "     ${DIM}│  ${RESET} ${DIM}37 rules · 7 use case templates · 5 DDL templates${RESET}\n"
-    printf "     ${DIM}│  ${RESET} ${DIM}CLI-based query diagnosis · profile/tablet evidence${RESET}\n"
-    printf "     ${DIM}└─${RESET} ${BOLD}velocli-cloud${RESET}\n"
-    printf "        ${DIM}Cloud onboarding · cluster lifecycle · billing · audit${RESET}\n"
-    printf "        ${DIM}Networking · troubleshooting · stateless/CI mode${RESET}\n\n"
-
-    # Check velocli
-    if command -v velocli >/dev/null 2>&1; then
-        printf "  ${CHECK} velocli: ${CYAN}$(velocli --version)${RESET}\n"
-    elif command -v npx >/dev/null 2>&1 && npx velocli --version >/dev/null 2>&1; then
-        printf "  ${CHECK} velocli (via npx): ${CYAN}$(npx velocli --version 2>/dev/null)${RESET}\n"
-    else
-        printf "  ${DIM}○${RESET} velocli: not installed ${DIM}(optional — skills work without it)${RESET}\n"
-        printf "    Install: ${WHITE}npm install -g @velodb/velocli${RESET}\n"
-    fi
-
-    echo
-    printf "  ${DIAMOND} ${WHITE}Try it:${RESET}\n"
-    printf "     ${DIM}\"Design a table for real-time fleet tracking analytics\"${RESET}\n"
-    printf "     ${DIM}\"Review this CREATE TABLE for best practices\"${RESET}\n"
-    printf "     ${DIM}\"My queries on the orders table are slow\"${RESET}\n"
-    printf "     ${DIM}\"Help me connect to VeloDB Cloud\"${RESET}\n"
-    printf "     ${DIM}\"Pause the analytics cluster\"${RESET}\n\n"
-    printf "  ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n\n"
-}
-
-show_prereqs() {
-    echo
-    printf "  ${DIAMOND} ${BOLD}Prerequisites${RESET}\n\n"
-    printf "  ${WHITE}Required:${RESET}\n"
-    printf "    ${DIM}•${RESET} An AI coding assistant (Claude Code, Cursor, Windsurf, etc.)\n"
-    printf "    ${DIM}•${RESET} VeloDB Cloud account or self-hosted Apache Doris cluster\n\n"
-    printf "  ${WHITE}Optional (for CLI diagnostics):${RESET}\n"
-    printf "    ${DIM}•${RESET} Node.js ≥ 16 for velocli: ${WHITE}npm install -g @velodb/velocli${RESET}\n"
-    printf "    ${DIM}•${RESET} VeloDB Cloud API key from: ${WHITE}https://www.velodb.cloud/organization/api-keys${RESET}\n"
-    printf "    ${DIM}•${RESET} MySQL password (set during warehouse creation)\n\n"
-    printf "  ${WHITE}Connection info (from Cloud console → Connection Methods):${RESET}\n"
-    printf "    ${DIM}•${RESET} MySQL CLI:    ${DIM}mysql -h <host> -P 9030 -u admin -p<password>${RESET}\n"
-    printf "    ${DIM}•${RESET} JDBC:         ${DIM}jdbc:mysql://<host>:9030/<db>?user=admin${RESET}\n"
-    printf "    ${DIM}•${RESET} StreamLoad:   ${DIM}http://<host>:8080${RESET}\n"
-    printf "    ${DIM}•${RESET} HTTP port:    ${DIM}8080 (VeloDB Cloud) or 8030 (self-hosted Doris)${RESET}\n\n"
-}
-
 maybe_ask_velocli() {
     echo
     if command -v velocli >/dev/null 2>&1; then
@@ -191,57 +229,153 @@ maybe_ask_velocli() {
     fi
 }
 
-case "${1:-}" in
-    --claude)       show_banner; install_all_skills_to_dir "${AGENT_DIRS[claude]}"; maybe_ask_velocli; show_summary ;;
-    --antigravity)  show_banner; install_all_skills_to_dir "${AGENT_DIRS[antigravity]}"; maybe_ask_velocli; show_summary ;;
-    --cursor)       show_banner; install_all_skills_to_dir "${AGENT_DIRS[cursor]}"; maybe_ask_velocli; show_summary ;;
-    --windsurf)     show_banner; install_all_skills_to_dir "${AGENT_DIRS[windsurf]}"; maybe_ask_velocli; show_summary ;;
-    --codex)        show_banner; install_all_skills_to_dir "${AGENT_DIRS[codex]}"; maybe_ask_velocli; show_summary ;;
-    --gemini)       show_banner; install_all_skills_to_dir "${AGENT_DIRS[gemini]}"; maybe_ask_velocli; show_summary ;;
-    --kiro)         show_banner; install_all_skills_to_dir "${AGENT_DIRS[kiro]}"; maybe_ask_velocli; show_summary ;;
-    --all)          show_banner; install_all_detected; maybe_ask_velocli; show_summary ;;
-    --velocli)      show_banner; install_velocli; echo ;;
-    --prereqs)      show_banner; show_prereqs ;;
-    --path)         show_banner
-                    [[ -z "${2:-}" ]] && { printf "  ${CROSS} --path needs a directory\n"; exit 1; }
-                    install_all_skills_to_dir "$2"; maybe_ask_velocli; show_summary ;;
-    --help|-h)      show_banner
-        printf "  ${BOLD}Usage:${RESET}\n\n"
-        printf "    ./install.sh               ${DIM}Interactive menu${RESET}\n"
-        printf "    ./install.sh --all          ${DIM}Auto-detect & install to all agents${RESET}\n"
-        printf "    ./install.sh --claude       ${DIM}~/.claude/skills/${RESET}\n"
-        printf "    ./install.sh --antigravity  ${DIM}~/.gemini/antigravity/skills/${RESET}\n"
-        printf "    ./install.sh --cursor       ${DIM}~/.cursor/skills/${RESET}\n"
-        printf "    ./install.sh --windsurf     ${DIM}~/.codeium/windsurf/skills/${RESET}\n"
-        printf "    ./install.sh --codex        ${DIM}~/.codex/skills/${RESET}\n"
-        printf "    ./install.sh --gemini       ${DIM}~/.gemini-cli/skills/${RESET}\n"
-        printf "    ./install.sh --kiro         ${DIM}~/.kiro/skills/${RESET}\n"
-        printf "    ./install.sh --path DIR     ${DIM}Custom directory${RESET}\n"
-        printf "    ./install.sh --velocli      ${DIM}Install velocli CLI only${RESET}\n"
-        printf "    ./install.sh --prereqs      ${DIM}Show prerequisites${RESET}\n\n"
-        printf "  ${BOLD}For remote install:${RESET}\n"
-        printf "    ${GREEN}npx skills add <github-repo>${RESET}  ${DIM}(run from project root)${RESET}\n\n" ;;
-    "") show_banner
-        printf "  ${DIAMOND} ${BOLD}Choose target:${RESET}\n\n"
-        printf "    ${WHITE}1)${RESET} ${BOLD}Auto-detect${RESET}    ${DIM}Install to all detected agents${RESET}\n"
-        printf "    ${WHITE}2)${RESET} Claude Code\n"
-        printf "    ${WHITE}3)${RESET} Antigravity\n"
-        printf "    ${WHITE}4)${RESET} Cursor\n"
-        printf "    ${WHITE}5)${RESET} Windsurf\n"
-        printf "    ${WHITE}6)${RESET} Custom path\n"
-        printf "    ${WHITE}7)${RESET} ${DIM}Show prerequisites${RESET}\n\n"
-        printf "  ${ARROW} Choice ${DIM}[1-7]:${RESET} "; read -r tc
-        case "${tc:-1}" in
-            1) install_all_detected ;;
-            2) install_all_skills_to_dir "${AGENT_DIRS[claude]}" ;;
-            3) install_all_skills_to_dir "${AGENT_DIRS[antigravity]}" ;;
-            4) install_all_skills_to_dir "${AGENT_DIRS[cursor]}" ;;
-            5) install_all_skills_to_dir "${AGENT_DIRS[windsurf]}" ;;
-            6) printf "  ${ARROW} Path: "; read -r p; install_all_skills_to_dir "$p" ;;
-            7) show_prereqs; exit 0 ;;
-        esac
+# ─── Summaries ──────────────────────────────────────────────────────────────
 
+show_install_summary() {
+    echo; printf "  ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n\n"
+    printf "  ${CHECK} ${BOLD}Installation complete!${RESET}\n\n"
+    printf "  ${DIAMOND} ${WHITE}What's included:${RESET}\n"
+    printf "     ${DIM}├─${RESET} ${BOLD}velodb-architecture-advisor${RESET}\n"
+    printf "     ${DIM}│  ${RESET} ${DIM}8 decision frameworks · 10 industry examples${RESET}\n"
+    printf "     ${DIM}├─${RESET} ${BOLD}velodb-best-practices${RESET}\n"
+    printf "     ${DIM}│  ${RESET} ${DIM}37 rules · 7 use case templates · 5 DDL templates${RESET}\n"
+    printf "     ${DIM}└─${RESET} ${BOLD}velocli-cloud${RESET}\n"
+    printf "        ${DIM}Cloud onboarding · cluster lifecycle · billing · networking${RESET}\n\n"
+
+    if command -v velocli >/dev/null 2>&1; then
+        printf "  ${CHECK} velocli: ${CYAN}$(velocli --version)${RESET}\n"
+    elif command -v npx >/dev/null 2>&1 && npx velocli --version >/dev/null 2>&1; then
+        printf "  ${CHECK} velocli (via npx): ${CYAN}$(npx velocli --version 2>/dev/null)${RESET}\n"
+    else
+        printf "  ${DIM}○${RESET} velocli: not installed ${DIM}(optional)${RESET}\n"
+        printf "    Install: ${WHITE}npm install -g @velodb/velocli${RESET}\n"
+    fi
+
+    echo
+    printf "  ${DIAMOND} ${WHITE}Try it:${RESET}\n"
+    printf "     ${DIM}\"Design a table for real-time fleet tracking analytics\"${RESET}\n"
+    printf "     ${DIM}\"Review this CREATE TABLE for best practices\"${RESET}\n"
+    printf "     ${DIM}\"Help me connect to VeloDB Cloud\"${RESET}\n\n"
+    printf "  ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n\n"
+}
+
+show_uninstall_summary() {
+    echo; printf "  ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n\n"
+    printf "  ${CHECK} ${BOLD}Uninstall complete.${RESET}\n\n"
+    printf "  ${DIM}To reinstall: ./install.sh${RESET}\n"
+    printf "  ${DIM}To also remove velocli: npm uninstall -g @velodb/velocli${RESET}\n\n"
+    printf "  ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n\n"
+}
+
+show_update_summary() {
+    echo; printf "  ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n\n"
+    printf "  ${CHECK} ${BOLD}Update complete!${RESET} ${DIM}(v%s)${RESET}\n\n" "$VERSION"
+    printf "  ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n\n"
+}
+
+show_prereqs() {
+    echo
+    printf "  ${DIAMOND} ${BOLD}Prerequisites${RESET}\n\n"
+    printf "  ${WHITE}Required:${RESET}\n"
+    printf "    ${DIM}•${RESET} An AI coding assistant (Claude Code, Cursor, Windsurf, etc.)\n"
+    printf "    ${DIM}•${RESET} VeloDB Cloud account or self-hosted Apache Doris cluster\n\n"
+    printf "  ${WHITE}Optional (for CLI diagnostics):${RESET}\n"
+    printf "    ${DIM}•${RESET} Node.js ≥ 16 for velocli: ${WHITE}npm install -g @velodb/velocli${RESET}\n"
+    printf "    ${DIM}•${RESET} VeloDB Cloud API key from: ${WHITE}https://www.velodb.cloud/organization/api-keys${RESET}\n"
+    printf "    ${DIM}•${RESET} MySQL password (set during warehouse creation)\n\n"
+}
+
+show_help() {
+    show_banner
+    printf "  ${BOLD}Usage:${RESET}  ./install.sh [action] [options]\n\n"
+    printf "  ${BOLD}Actions:${RESET}\n\n"
+    printf "    ${WHITE}install${RESET}   ${DIM}(default)${RESET}  Install skills\n"
+    printf "    ${WHITE}update${RESET}              Update skills to latest version\n"
+    printf "    ${WHITE}uninstall${RESET}           Remove skills\n\n"
+    printf "  ${BOLD}Scope:${RESET}\n\n"
+    printf "    ${DIM}(default)${RESET}           Project-level ${DIM}(./.claude/skills/ in current directory)${RESET}\n"
+    printf "    ${WHITE}-g, --global${RESET}        Global-level ${DIM}(~/.claude/skills/ in home directory)${RESET}\n\n"
+    printf "  ${BOLD}Target:${RESET}\n\n"
+    printf "    ${DIM}(default)${RESET}           Auto-detect installed agents\n"
+    printf "    ${WHITE}--agent <name>${RESET}      Specific agent: claude, cursor, windsurf, antigravity,\n"
+    printf "                       codex, gemini, kiro, copilot\n"
+    printf "    ${WHITE}--path <dir>${RESET}        Custom directory\n\n"
+    printf "  ${BOLD}Other:${RESET}\n\n"
+    printf "    ${WHITE}--velocli${RESET}           Install velocli CLI only\n"
+    printf "    ${WHITE}--prereqs${RESET}           Show prerequisites\n"
+    printf "    ${WHITE}--version${RESET}           Show version\n"
+    printf "    ${WHITE}-h, --help${RESET}          Show this help\n\n"
+    printf "  ${BOLD}Examples:${RESET}\n\n"
+    printf "    ./install.sh                        ${DIM}Install to project, auto-detect agents${RESET}\n"
+    printf "    ./install.sh --agent claude          ${DIM}Install to ./.claude/skills/${RESET}\n"
+    printf "    ./install.sh -g                      ${DIM}Install to ~/.claude/skills/ (global)${RESET}\n"
+    printf "    ./install.sh -g --agent cursor       ${DIM}Install to ~/.cursor/skills/ (global)${RESET}\n"
+    printf "    ./install.sh update                  ${DIM}Update project-level skills${RESET}\n"
+    printf "    ./install.sh update -g               ${DIM}Update global skills${RESET}\n"
+    printf "    ./install.sh uninstall               ${DIM}Remove project-level skills${RESET}\n"
+    printf "    ./install.sh uninstall -g             ${DIM}Remove global skills${RESET}\n"
+    printf "    ./install.sh --path ./my-skills      ${DIM}Install to custom directory${RESET}\n\n"
+}
+
+# ─── Parse args ─────────────────────────────────────────────────────────────
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        install)    ACTION="install"; shift ;;
+        update)     ACTION="update"; shift ;;
+        uninstall)  ACTION="uninstall"; shift ;;
+        -g|--global) SCOPE="global"; shift ;;
+        --agent)    TARGET_AGENT="$2"; shift 2 ;;
+        --path)     CUSTOM_PATH="$2"; shift 2 ;;
+        --velocli)  show_banner; install_velocli; echo; exit 0 ;;
+        --prereqs)  show_banner; show_prereqs; exit 0 ;;
+        --version)  echo "velodb-agent-skills $VERSION"; exit 0 ;;
+        -h|--help)  show_help; exit 0 ;;
+        *)          printf "  ${CROSS} Unknown: $1. Use --help\n"; exit 1 ;;
+    esac
+done
+
+# ─── Execute ────────────────────────────────────────────────────────────────
+
+show_banner
+
+scope_label="project ($(pwd))"
+[[ "$SCOPE" == "global" ]] && scope_label="global (~)"
+printf "  ${DIM}Scope: %s${RESET}\n" "$scope_label"
+
+case "$ACTION" in
+    install)
+        printf "  ${DIM}Action: install${RESET}\n\n"
+        if [[ -n "$CUSTOM_PATH" ]]; then
+            install_all_skills_to_dir "$CUSTOM_PATH"
+        elif [[ -n "$TARGET_AGENT" ]]; then
+            run_on_agent "$TARGET_AGENT" install_all_skills_to_dir
+        else
+            run_on_all_detected install_all_skills_to_dir
+        fi
         maybe_ask_velocli
-        show_summary ;;
-    *) printf "  ${CROSS} Unknown: $1. Use --help\n"; exit 1 ;;
+        show_install_summary
+        ;;
+    update)
+        printf "  ${DIM}Action: update${RESET}\n\n"
+        if [[ -n "$CUSTOM_PATH" ]]; then
+            update_skills_in_dir "$CUSTOM_PATH"
+        elif [[ -n "$TARGET_AGENT" ]]; then
+            run_on_agent "$TARGET_AGENT" update_skills_in_dir
+        else
+            run_on_all_detected update_skills_in_dir
+        fi
+        show_update_summary
+        ;;
+    uninstall)
+        printf "  ${DIM}Action: uninstall${RESET}\n\n"
+        if [[ -n "$CUSTOM_PATH" ]]; then
+            uninstall_skills_from_dir "$CUSTOM_PATH"
+        elif [[ -n "$TARGET_AGENT" ]]; then
+            run_on_agent "$TARGET_AGENT" uninstall_skills_from_dir
+        else
+            run_on_all_detected uninstall_skills_from_dir
+        fi
+        show_uninstall_summary
+        ;;
 esac
